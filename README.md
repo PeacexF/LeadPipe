@@ -68,7 +68,7 @@ full record of where every field came from.
 Requires [uv](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
-git clone <this-repo> && cd LeadPipe
+git clone https://github.com/PeacexF/LeadPipe && cd LeadPipe
 cp .env.example .env
 
 uv sync
