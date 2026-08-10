@@ -15,6 +15,7 @@ from app.api.deps import (
     require_api_key,
 )
 from app.api.schemas import (
+    DeletionResult,
     Health,
     JobCreate,
     JobOut,
@@ -23,13 +24,20 @@ from app.api.schemas import (
     Page,
     Ready,
     SourceOut,
+    SuppressionCreate,
+    SuppressionOut,
 )
 from app.db.health import check_readiness
 from app.db.models import JobStatus
 from app.domain.filters import LeadFilter
 from app.exports import CONTENT_TYPES, FORMATS, export_leads
 from app.jobs.service import enqueue
-from app.repositories import JobRepository, LeadRepository, SourceRepository
+from app.repositories import (
+    JobRepository,
+    LeadRepository,
+    SourceRepository,
+    SuppressionRepository,
+)
 
 router = APIRouter()
 api = APIRouter(prefix="/api")
@@ -80,6 +88,68 @@ async def get_lead(lead_id: int, session: SessionDep) -> LeadDetail:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "lead not found")
     provenance = await repo.provenance(lead_id)
     return LeadDetail.detail(rows[0].lead, rows[0].sources, list(provenance))
+
+
+@api.delete(
+    "/leads/{lead_id}",
+    response_model=DeletionResult,
+    dependencies=[Depends(require_api_key)],
+    tags=["leads"],
+)
+async def delete_lead(
+    lead_id: int,
+    session: SessionDep,
+    suppress: Annotated[
+        bool, Query(description="Also block this lead from being collected again.")
+    ] = True,
+) -> DeletionResult:
+    # Erase a lead and every record it was built from
+    leads = LeadRepository(session)
+    lead = await leads.get(lead_id)
+    if lead is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "lead not found")
+
+    added = []
+    if suppress:
+        added = await SuppressionRepository(session).add_for_lead(
+            lead.email, lead.website_domain, reason=f"lead {lead_id} deleted"
+        )
+
+    deleted = await leads.delete(lead_id)
+    await session.commit()
+    return DeletionResult(deleted=deleted, suppressed=[SuppressionOut.of(entry) for entry in added])
+
+
+@api.get("/suppressions", response_model=list[SuppressionOut], tags=["suppressions"])
+async def list_suppressions(session: SessionDep) -> list[SuppressionOut]:
+    entries = await SuppressionRepository(session).list_all()
+    return [SuppressionOut.of(entry) for entry in entries]
+
+
+@api.post(
+    "/suppressions",
+    response_model=SuppressionOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_api_key)],
+    tags=["suppressions"],
+)
+async def create_suppression(payload: SuppressionCreate, session: SessionDep) -> SuppressionOut:
+    entry = await SuppressionRepository(session).add(payload.kind, payload.value, payload.reason)
+    await session.commit()
+    return SuppressionOut.of(entry)
+
+
+@api.delete(
+    "/suppressions/{suppression_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_api_key)],
+    tags=["suppressions"],
+)
+async def delete_suppression(suppression_id: int, session: SessionDep) -> None:
+    removed = await SuppressionRepository(session).remove(suppression_id)
+    await session.commit()
+    if not removed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "suppression not found")
 
 
 @api.get("/jobs", response_model=Page[JobOut], tags=["jobs"])

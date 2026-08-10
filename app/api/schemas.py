@@ -3,7 +3,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.db.models import CollectionJob, CollectionJobResult, JobStatus, Lead, Source
+from app.db.models import (
+    CollectionJob,
+    CollectionJobResult,
+    JobStatus,
+    Lead,
+    Source,
+    Suppression,
+    SuppressionKind,
+)
 from app.repositories.leads import LeadExport, Provenance
 from app.validation import ValidationStatus
 
@@ -94,6 +102,7 @@ class JobResultOut(BaseModel):
     duplicates: int
     new_leads: int
     errors: int
+    suppressed: int
 
     @classmethod
     def of(cls, result: CollectionJobResult) -> JobResultOut:
@@ -104,6 +113,7 @@ class JobResultOut(BaseModel):
             duplicates=result.duplicates,
             new_leads=result.new_leads,
             errors=result.errors,
+            suppressed=result.suppressed,
         )
 
 
@@ -167,3 +177,32 @@ class Ready(BaseModel):
     applied_revision: str | None = None
     expected_revision: str | None = None
     detail: str | None = None
+
+
+class SuppressionOut(BaseModel):
+    id: int
+    kind: SuppressionKind
+    value: str
+    reason: str | None
+    created_at: datetime
+
+    @classmethod
+    def of(cls, entry: Suppression) -> SuppressionOut:
+        return cls(
+            id=entry.id,
+            kind=entry.kind,
+            value=entry.value,
+            reason=entry.reason,
+            created_at=entry.created_at,
+        )
+
+
+class SuppressionCreate(BaseModel):
+    kind: SuppressionKind
+    value: str = Field(min_length=1, max_length=320)
+    reason: str | None = None
+
+
+class DeletionResult(BaseModel):
+    deleted: bool
+    suppressed: list[SuppressionOut] = Field(default_factory=list)

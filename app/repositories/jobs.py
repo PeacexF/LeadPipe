@@ -86,6 +86,7 @@ class JobRepository:
         duplicates: int = 0,
         new_leads: int = 0,
         errors: int = 0,
+        suppressed: int = 0,
     ) -> CollectionJobResult:
         result = await self.session.scalar(
             select(CollectionJobResult).where(CollectionJobResult.job_id == job_id)
@@ -99,5 +100,6 @@ class JobRepository:
         result.duplicates = duplicates
         result.new_leads = new_leads
         result.errors = errors
+        result.suppressed = suppressed
         await self.session.flush()
         return result

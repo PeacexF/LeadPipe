@@ -1,8 +1,18 @@
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, ScalarSelect, exists, func, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    ScalarSelect,
+    delete,
+    exists,
+    func,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Lead, LeadMerge, Source, SourceRecord
@@ -11,6 +21,7 @@ from app.deduplication.matcher import DEFAULT_POLICY, MatchPolicy
 from app.deduplication.merge import Candidate, MergedLead
 from app.domain.filters import LeadFilter
 from app.domain.models import NormalizedLead, SourceRef
+from app.repositories._rows import rowcount
 from app.validation.models import LeadValidation
 
 _LEAD_KEYS = frozenset(
@@ -137,6 +148,21 @@ class LeadRepository:
         stmt = select(func.count()).select_from(Lead)
         for condition in _conditions(filters or LeadFilter()):
             stmt = stmt.where(condition)
+        return (await self.session.scalars(stmt)).one()
+
+    async def delete(self, lead_id: int) -> bool:
+        # source_records and lead_merges cascade, so the raw payloads go too
+        result = await self.session.execute(delete(Lead).where(Lead.id == lead_id))
+        return rowcount(result) > 0
+
+    async def purge_older_than(self, days: int) -> int:
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        result = await self.session.execute(delete(Lead).where(Lead.last_seen_at < cutoff))
+        return rowcount(result)
+
+    async def count_older_than(self, days: int) -> int:
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        stmt = select(func.count()).select_from(Lead).where(Lead.last_seen_at < cutoff)
         return (await self.session.scalars(stmt)).one()
 
     async def candidates_for(self, lead_id: int) -> list[Candidate]:

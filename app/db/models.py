@@ -21,6 +21,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from app.validation.models import ValidationStatus
 
 
+class SuppressionKind(StrEnum):
+    EMAIL = "email"
+    DOMAIN = "domain"
+
+
 class JobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -132,6 +137,7 @@ class CollectionJobResult(Base):
     duplicates: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     new_leads: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    suppressed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     job: Mapped[CollectionJob] = relationship(back_populates="result")
 
@@ -195,5 +201,20 @@ class LeadMerge(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     merged_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Suppression(Base):
+    __tablename__ = "suppressions"
+    __table_args__ = (UniqueConstraint("kind", "value", name="uq_suppressions_entry"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    kind: Mapped[SuppressionKind] = mapped_column(
+        _enum(SuppressionKind, "suppression_kind"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -12,6 +12,8 @@ from app.repositories import (
     LeadRepository,
     SourceRecordRepository,
     SourceRepository,
+    SuppressionList,
+    SuppressionRepository,
 )
 from app.sources import RecordError, SourceError, build_source
 from app.telemetry import bind, get_logger, unbind
@@ -31,6 +33,7 @@ class RunStats:
     duplicates: int = 0
     new_leads: int = 0
     needs_review: int = 0
+    suppressed: int = 0
     errors: int = 0
 
     def as_dict(self) -> dict[str, int]:
@@ -63,6 +66,7 @@ async def run_collection(
     bind(job=job.id, source=source.name)
     logger.info("collection started")
 
+    suppressions = await SuppressionRepository(session).load()
     stats = RunStats()
     try:
         try:
@@ -74,7 +78,16 @@ async def run_collection(
                         logger.warning("record rejected", reason=item.message)
                         continue
                     try:
-                        await _ingest(session, source, source_config, item, region, job.id, stats)
+                        await _ingest(
+                            session,
+                            source,
+                            source_config,
+                            item,
+                            region,
+                            job.id,
+                            stats,
+                            suppressions,
+                        )
                     except Exception:  # one bad record must not end the run
                         stats.errors += 1
                         logger.exception("record failed")
@@ -102,10 +115,19 @@ async def _ingest(
     region: str | None,
     job_id: int,
     stats: RunStats,
+    suppressions: SuppressionList,
 ) -> None:
     lead = normalize_record(raw, region)
-    validation = validate_lead(lead)
     stats.collected += 1
+
+    blocked_by = suppressions.blocks(lead)
+    if blocked_by is not None:
+        # erasure has to survive re-collection, or deletion means nothing
+        stats.suppressed += 1
+        logger.info("record suppressed", matched_on=blocked_by)
+        return
+
+    validation = validate_lead(lead)
     if validation.status is ValidationStatus.VALID:
         stats.valid += 1
     elif validation.status is ValidationStatus.INVALID:
@@ -209,4 +231,5 @@ def _persisted(stats: RunStats) -> dict[str, int]:
         "duplicates": stats.duplicates,
         "new_leads": stats.new_leads,
         "errors": stats.errors,
+        "suppressed": stats.suppressed,
     }

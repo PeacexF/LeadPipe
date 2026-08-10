@@ -17,6 +17,7 @@ from app.db.models import (
     LeadMerge,
     Source,
     SourceRecord,
+    Suppression,
 )
 from app.db.session import create_engine, create_session_factory
 from app.jobs.service import sync_sources
@@ -73,6 +74,7 @@ async def factory(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[Async
                 CollectionJobResult,
                 CollectionJob,
                 Source,
+                Suppression,
             ):
                 await db.execute(delete(model))
             await db.commit()

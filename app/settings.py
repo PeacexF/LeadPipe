@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     default_page_size: int = 50
     max_page_size: int = 200
+    retention_days: int | None = None
     log_level: str = "INFO"
     log_format: str = "console"
 

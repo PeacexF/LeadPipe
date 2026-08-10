@@ -7,6 +7,8 @@ from app.db.models import (
     LeadMerge,
     Source,
     SourceRecord,
+    Suppression,
+    SuppressionKind,
 )
 from app.db.session import create_engine, create_session_factory
 
@@ -19,6 +21,8 @@ __all__ = [
     "LeadMerge",
     "Source",
     "SourceRecord",
+    "Suppression",
+    "SuppressionKind",
     "create_engine",
     "create_session_factory",
 ]

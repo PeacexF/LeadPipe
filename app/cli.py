@@ -6,13 +6,14 @@ from typing import Annotated
 import typer
 
 from app.config import AppConfig, ConfigError, load_config
+from app.db.models import SuppressionKind
 from app.db.session import create_engine, create_session_factory
 from app.domain.filters import LeadFilter
 from app.exports import FORMATS, export_leads
 from app.jobs import Worker, WorkerConfig, sync_sources
 from app.jobs.service import enqueue as enqueue_job
 from app.pipeline import RunStats, run_collection
-from app.repositories import LeadRepository
+from app.repositories import LeadRepository, SuppressionRepository, normalize_value
 from app.settings import get_settings
 from app.sources import SourceError
 from app.telemetry import configure_logging
@@ -123,6 +124,56 @@ def export(
 
 
 @app.command()
+def purge(
+    days: Annotated[
+        int | None, typer.Option("--days", help="Delete leads not seen for this many days.")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+) -> None:
+    """Apply the retention policy."""
+    _configure_logging()
+    retention = days or get_settings().retention_days
+    if retention is None:
+        raise typer.BadParameter("set --days or RETENTION_DAYS")
+
+    removed = asyncio.run(_purge(retention, dry_run))
+    verb = "would delete" if dry_run else "deleted"
+    typer.echo(f"{verb} {removed} lead(s) not seen in {retention} day(s)")
+
+
+@app.command()
+def suppress(
+    value: Annotated[str, typer.Argument(help="Email address or domain.")],
+    kind: Annotated[str, typer.Option("--kind", help="email or domain.")] = "email",
+    reason: Annotated[str | None, typer.Option("--reason")] = None,
+    remove: Annotated[bool, typer.Option("--remove", help="Delete the entry instead.")] = False,
+) -> None:
+    """Block a contact from being collected, or unblock one."""
+    _configure_logging()
+    try:
+        suppression_kind = SuppressionKind(kind)
+    except ValueError as exc:
+        raise typer.BadParameter("kind must be email or domain") from exc
+
+    result = asyncio.run(_suppress(suppression_kind, value, reason, remove))
+    if remove:
+        typer.echo(f"Removed {result} suppression(s) for {value}")
+    else:
+        typer.echo(f"Suppressed {suppression_kind.value} {result}")
+
+
+@app.command()
+def suppressions() -> None:
+    """List suppressed contacts."""
+    entries = asyncio.run(_list_suppressions())
+    if not entries:
+        typer.echo("No suppressions.")
+        return
+    for entry_id, entry_kind, entry_value, entry_reason in entries:
+        typer.echo(f"{entry_id:<5} {entry_kind:<7} {entry_value:<40} {entry_reason or ''}")
+
+
+@app.command()
 def sources(
     config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
 ) -> None:
@@ -192,6 +243,52 @@ async def _enqueue(app_config: AppConfig, source: str) -> int:
         await engine.dispose()
 
 
+async def _purge(days: int, dry_run: bool) -> int:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            repo = LeadRepository(session)
+            if dry_run:
+                return await repo.count_older_than(days)
+            removed = await repo.purge_older_than(days)
+            await session.commit()
+            return removed
+    finally:
+        await engine.dispose()
+
+
+async def _suppress(kind: SuppressionKind, value: str, reason: str | None, remove: bool) -> object:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            repo = SuppressionRepository(session)
+            if remove:
+                target = normalize_value(kind, value)
+                entries = [e for e in await repo.list_all() if e.value == target]
+                for entry in entries:
+                    await repo.remove(entry.id)
+                await session.commit()
+                return len(entries)
+            entry = await repo.add(kind, value, reason)
+            await session.commit()
+            return entry.value
+    finally:
+        await engine.dispose()
+
+
+async def _list_suppressions() -> list[tuple[int, str, str, str | None]]:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            entries = await SuppressionRepository(session).list_all()
+            return [(e.id, e.kind.value, e.value, e.reason) for e in entries]
+    finally:
+        await engine.dispose()
+
+
 async def _export(export_format: str, filters: LeadFilter, out: Path | None) -> int:
     engine = create_engine(get_settings().database_url)
     factory = create_session_factory(engine)
@@ -223,6 +320,7 @@ def _print_stats(name: str, stats: RunStats) -> None:
         ("Duplicates", stats.duplicates),
         ("New leads", stats.new_leads),
         ("Needs review", stats.needs_review),
+        ("Suppressed", stats.suppressed),
         ("Errors", stats.errors),
     ):
         typer.echo(f"  {label:<14} {value:>6}")

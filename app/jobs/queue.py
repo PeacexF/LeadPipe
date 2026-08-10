@@ -2,10 +2,11 @@ import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import CursorResult, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import CollectionJob, JobStatus, Source
+from app.repositories._rows import rowcount
 
 BASE_BACKOFF_SECONDS = 5.0
 MAX_BACKOFF_SECONDS = 300.0
@@ -129,8 +130,4 @@ async def recover_stale(session: AsyncSession, stale_after: float = STALE_AFTER_
         .where(running, silent)
         .values(status=JobStatus.PENDING, claimed_by=None, run_after=None)
     )
-    return _rowcount(exhausted) + _rowcount(requeued)
-
-
-def _rowcount(result: object) -> int:
-    return result.rowcount if isinstance(result, CursorResult) else 0
+    return rowcount(exhausted) + rowcount(requeued)

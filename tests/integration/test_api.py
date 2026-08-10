@@ -276,3 +276,59 @@ async def test_readiness_reports_missing_migration_scripts(
         assert response.json()["detail"] == "migration scripts not found"
     finally:
         health.head_revision.cache_clear()
+
+
+async def test_delete_lead_erases_and_suppresses(client: AsyncClient, seeded: None) -> None:
+    listing = await client.get("/api/leads", params={"limit": 100})
+    lead = next(
+        item for item in listing.json()["items"] if item["email"] == "info@nordicclean.test"
+    )
+
+    response = await client.delete(f"/api/leads/{lead['id']}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deleted"] is True
+    assert {entry["kind"] for entry in body["suppressed"]} == {"email", "domain"}
+
+    assert (await client.get(f"/api/leads/{lead['id']}")).status_code == 404
+
+    entries = (await client.get("/api/suppressions")).json()
+    assert "info@nordicclean.test" in [entry["value"] for entry in entries]
+
+
+async def test_delete_lead_without_suppressing(client: AsyncClient, seeded: None) -> None:
+    listing = await client.get("/api/leads", params={"limit": 100})
+    lead = listing.json()["items"][-1]
+
+    response = await client.delete(f"/api/leads/{lead['id']}", params={"suppress": "false"})
+
+    assert response.status_code == 200
+    assert response.json()["suppressed"] == []
+
+
+async def test_deleting_a_missing_lead_is_404(client: AsyncClient) -> None:
+    assert (await client.delete("/api/leads/999999")).status_code == 404
+
+
+async def test_suppressions_can_be_added_and_removed(client: AsyncClient) -> None:
+    created = await client.post(
+        "/api/suppressions",
+        json={"kind": "domain", "value": "WWW.Blocked.TEST/path", "reason": "asked to be removed"},
+    )
+    assert created.status_code == 201
+    assert created.json()["value"] == "blocked.test"
+
+    entry_id = created.json()["id"]
+    assert (await client.delete(f"/api/suppressions/{entry_id}")).status_code == 204
+    assert (await client.delete(f"/api/suppressions/{entry_id}")).status_code == 404
+
+
+async def test_deletion_requires_the_api_key(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with build_client(factory, leadpipe_api_key="s3cret") as client:
+        assert (await client.delete("/api/leads/1")).status_code == 401
+        assert (
+            await client.post("/api/suppressions", json={"kind": "email", "value": "a@b.test"})
+        ).status_code == 401
+        assert (await client.get("/api/suppressions")).status_code == 200
