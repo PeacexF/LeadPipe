@@ -1,0 +1,21 @@
+id,name,contact,website,email,phone,street,city,country
+C-001,Nordic Clean Oy,Anna Virtanen,www.nordicclean.test,info@nordicclean.test,+358 40 123 4567,Mannerheimintie 12,Helsinki,Finland
+C-002,NORDIC CLEAN OY,,https://nordicclean.test/,INFO@NORDICCLEAN.TEST,040-1234567,Mannerheimintie 12,HELSINKI,FI
+C-003,Helsinki Facility Services Ltd,Mikko Laine,helsinkifacility.test,contact@helsinkifacility.test,+358 9 123 4567,Aleksanterinkatu 5,Helsinki,Finland
+C-004,Suomen Siivouspalvelu Oy,,http://www.siivouspalvelu.test/?utm_source=directory&utm_medium=listing,myynti@siivouspalvelu.test,+358 50 987 6543,Hameentie 30,Helsinki,Suomi
+C-005,Tampere Clean Team,Laura Makinen,tampereclean.test,laura@tampereclean.test,03 123 4567,Hameenkatu 15,Tampere,Finland
+C-006,Turku Office Care Ab,,https://turkuofficecare.test,not-an-email,+358 2 555 1234,Linnankatu 20,Turku,FI
+C-007,Espoo Kiinteistohuolto,Jari Nieminen,,jari@espoo-kiinteisto.test,050 111 2233,Piispansilta 11,Espoo,Finland
+C-008,Nordic Clean,,nordicclean.test,,,,Helsinki,FI
+C-009,Vantaa Puhtaus Oy,Sari Koskinen,www.vantaapuhtaus.test/,sari@vantaapuhtaus.test,+358 45 678 9012,Tikkurilantie 3,Vantaa,Finland
+C-010,Oulu Clean Solutions Ltd,,ouluclean.test,info@ouluclean.test,n/a,Kauppurienkatu 8,Oulu,Finland
+C-011,Helsinki Facility Services,Mikko Laine,https://www.helsinkifacility.test/about,CONTACT@HELSINKIFACILITY.TEST,+358 9 1234567,Aleksanterinkatu 5,helsinki,Finland
+C-012,Lahti Property Care Oy,,lahtiproperty.test,info@lahtiproperty.test,+358 3 777 8888,Aleksanterinkatu 12,Lahti,Finland
+C-013,,,,,,,,
+C-014,Jyvaskyla Siivous Ky,Petri Salo,jyvaskylasiivous.test,petri@jyvaskylasiivous.test,+358 14 555 6666,Kauppakatu 20,Jyvaskyla,Finland
+C-015,Kuopio Clean Oy,,kuopioclean.test,info@kuopioclean.test,+358 17 444 5555,Puijonkatu 10,Kuopio,Finland
+C-016,Nordic Clean Oyj,Tuomas Heikkila,nordicclean-group.test,info@nordicclean-group.test,+358 40 222 3344,Mannerheimintie 90,Helsinki,Finland
+C-017,Nordic Clean Oy,,nordicclean-turku.test,turku@nordicclean-turku.test,+358 2 333 4455,Linnankatu 4,Turku,Finland
+C-018,  Vantaa  Puhtaus  Oy  ,,VANTAAPUHTAUS.TEST,SARI@VANTAAPUHTAUS.TEST,045 678 9012,Tikkurilantie 3,vantaa,FI
+C-019,Porvoo Facility Ab,Katja Lehtinen,porvoofacility.test,katja@porvoofacility.test,019 555 7777,Rihkamakatu 3,Porvoo,Finland
+C-020,Oulu Clean Solutions,,www.ouluclean.test,INFO@OULUCLEAN.TEST,+358 8 444 3333,Kauppurienkatu 8,OULU,Suomi

@@ -31,6 +31,7 @@ def make_lead(
     ("value", "status"),
     [
         ("contact@example.com", ValidationStatus.VALID),
+        ("info@nordicclean.test", ValidationStatus.VALID),
         ("not an email", ValidationStatus.INVALID),
         ("contact@", ValidationStatus.INVALID),
         ("@example.com", ValidationStatus.INVALID),

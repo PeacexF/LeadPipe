@@ -1,0 +1,19 @@
+defaults:
+  region: FI
+
+sources:
+  - name: example_csv
+    type: csv
+    enabled: true
+    priority: 0
+    path: ./examples/data/companies.csv
+    external_id_field: id
+    mapping:
+      company_name: name
+      contact_name: contact
+      website: website
+      email: email
+      phone: phone
+      address: street
+      city: city
+      country: country

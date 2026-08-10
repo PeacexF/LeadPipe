@@ -101,3 +101,23 @@ def test_merge_is_order_independent() -> None:
 def test_merge_requires_candidates() -> None:
     with pytest.raises(ValueError):
         merge([])
+
+
+def test_more_complete_record_wins_a_tie() -> None:
+    merged = merge(
+        [
+            candidate("rec-1", company_name="Sparse"),
+            candidate("rec-2", company_name="Complete", email="a@example.com", city="Helsinki"),
+        ]
+    )
+    assert merged.lead.company_name == "Complete"
+
+
+def test_numeric_origins_break_ties_by_age_not_by_string_order() -> None:
+    merged = merge(
+        [
+            candidate("3", company_name="First Seen"),
+            candidate("11", company_name="Seen Later"),
+        ]
+    )
+    assert merged.lead.company_name == "First Seen"

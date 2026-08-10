@@ -17,7 +17,8 @@ def validate_email_field(value: str | None) -> FieldValidation:
     if value is None:
         return unknown()
     try:
-        validate_email(value, check_deliverability=False)
+        # syntax only: no DNS, and reserved domains (.test, example.com) are well-formed
+        validate_email(value, check_deliverability=False, test_environment=True)
     except EmailNotValidError:
         return invalid("syntax")
     return VALID

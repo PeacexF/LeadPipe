@@ -7,8 +7,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Lead, LeadMerge, Source, SourceRecord
 from app.deduplication.fingerprint import Fingerprints, company_slug
 from app.deduplication.matcher import DEFAULT_POLICY, MatchPolicy
-from app.deduplication.merge import MergedLead
+from app.deduplication.merge import Candidate, MergedLead
+from app.domain.models import NormalizedLead, SourceRef
 from app.validation.models import LeadValidation
+
+_LEAD_KEYS = frozenset(
+    {
+        "company_name",
+        "contact_name",
+        "website",
+        "website_domain",
+        "email",
+        "phone",
+        "address",
+        "city",
+        "country",
+        "extra",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +99,23 @@ class LeadRepository:
         lead.extra = dict(value.extra)
         lead.last_seen_at = max(lead.first_seen_at, value.collected_at)
 
+    async def candidates_for(self, lead_id: int) -> list[Candidate]:
+        stmt = (
+            select(SourceRecord, Source.name, Source.priority)
+            .join(Source, Source.id == SourceRecord.source_id)
+            .where(SourceRecord.lead_id == lead_id)
+            .order_by(SourceRecord.id)
+        )
+        rows = await self.session.execute(stmt)
+        return [
+            Candidate(
+                lead=_to_normalized(record, source_name),
+                origin=str(record.id),
+                priority=priority,
+            )
+            for record, source_name, priority in rows.all()
+        ]
+
     async def link(
         self,
         lead_id: int,
@@ -90,6 +123,7 @@ class LeadRepository:
         rule: str,
         confidence: float,
         needs_review: bool = False,
+        claim: bool = True,
     ) -> LeadMerge:
         stmt = select(LeadMerge).where(
             LeadMerge.lead_id == lead_id, LeadMerge.source_record_id == source_record_id
@@ -110,9 +144,12 @@ class LeadRepository:
             needs_review=needs_review,
         )
         self.session.add(merge)
-        await self.session.execute(
-            update(SourceRecord).where(SourceRecord.id == source_record_id).values(lead_id=lead_id)
-        )
+        if claim:
+            await self.session.execute(
+                update(SourceRecord)
+                .where(SourceRecord.id == source_record_id)
+                .values(lead_id=lead_id)
+            )
         await self.session.flush()
         return merge
 
@@ -133,6 +170,15 @@ class LeadRepository:
         )
         rows = await self.session.execute(stmt)
         return [Provenance(*row) for row in rows.all()]
+
+
+def _to_normalized(record: SourceRecord, source_name: str) -> NormalizedLead:
+    payload = {key: value for key, value in record.normalized.items() if key in _LEAD_KEYS}
+    return NormalizedLead(
+        source=SourceRef(name=source_name, url=record.source_url),
+        collected_at=record.collected_at,
+        **payload,
+    )
 
 
 def _location_key(city: str | None, country: str | None) -> str | None:
