@@ -54,11 +54,14 @@ def worker(
     config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
     poll_interval: Annotated[float, typer.Option("--poll-interval")] = 1.0,
     once: Annotated[bool, typer.Option("--once", help="Process one job, then exit.")] = False,
+    scheduler: Annotated[
+        bool, typer.Option("--scheduler/--no-scheduler", help="Run cron schedules.")
+    ] = True,
 ) -> None:
-    """Run the job worker."""
+    """Run the job worker, and the schedules unless told otherwise."""
     _configure_logging()
     app_config = _load(config)
-    asyncio.run(_run_worker(app_config, poll_interval, once))
+    asyncio.run(_run_worker(app_config, poll_interval, once, scheduler))
 
 
 @app.command()
@@ -129,9 +132,11 @@ def sources(
     app_config = _load(config)
     for source_config in app_config.sources:
         state = "enabled" if source_config.enabled else "disabled"
+        schedule = source_config.schedule
+        cron = f"cron='{schedule.cron}'" if schedule and schedule.enabled else "no schedule"
         typer.echo(
             f"{source_config.name:<24} {source_config.type:<8} "
-            f"priority={source_config.priority:<4} {state}"
+            f"priority={source_config.priority:<4} {state:<9} {cron}"
         )
 
 
@@ -150,7 +155,9 @@ async def _collect_all(app_config, names: list[str]) -> list[tuple[str, RunStats
     return results
 
 
-async def _run_worker(app_config: AppConfig, poll_interval: float, once: bool) -> None:
+async def _run_worker(
+    app_config: AppConfig, poll_interval: float, once: bool, scheduling: bool = True
+) -> None:
     engine = create_engine(get_settings().database_url)
     factory = create_session_factory(engine)
     try:
@@ -158,7 +165,11 @@ async def _run_worker(app_config: AppConfig, poll_interval: float, once: bool) -
             await sync_sources(session, app_config)
             await session.commit()
 
-        instance = Worker(factory, app_config, settings=WorkerConfig(poll_interval=poll_interval))
+        instance = Worker(
+            factory,
+            app_config,
+            settings=WorkerConfig(poll_interval=poll_interval, scheduling=scheduling),
+        )
         if once:
             await instance.run_once()
             return

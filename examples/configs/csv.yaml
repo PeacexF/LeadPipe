@@ -8,6 +8,12 @@ sources:
     priority: 0
     path: ./examples/data/companies.csv
     external_id_field: id
+
+    schedule:
+      enabled: false
+      cron: "0 9 * * *"
+      timezone: Europe/Helsinki
+
     mapping:
       company_name: name
       contact_name: contact

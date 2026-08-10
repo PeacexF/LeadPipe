@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config.models import AppConfig
 from app.jobs import queue
 from app.jobs.queue import ClaimedJob
+from app.jobs.scheduler import CollectionScheduler
 from app.pipeline import run_collection
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class WorkerConfig:
     heartbeat_interval: float = 10.0
     stale_after: float = queue.STALE_AFTER_SECONDS
     recover_every: float = 30.0
+    scheduling: bool = True
 
 
 class Worker:
@@ -40,6 +42,7 @@ class Worker:
         self.name = name or default_worker_name()
         self.settings = settings or WorkerConfig()
         self.stopping = asyncio.Event()
+        self.scheduler = CollectionScheduler(session_factory, config)
         self._last_recovery = 0.0
 
     def stop(self) -> None:
@@ -47,11 +50,17 @@ class Worker:
 
     async def run_forever(self) -> None:
         logger.info("worker=%s started", self.name)
-        while not self.stopping.is_set():
-            await self._maybe_recover()
-            worked = await self.run_once()
-            if not worked:
-                await self._sleep(self.settings.poll_interval)
+        if self.settings.scheduling:
+            self.scheduler.configure()
+            self.scheduler.start()
+        try:
+            while not self.stopping.is_set():
+                await self._maybe_recover()
+                worked = await self.run_once()
+                if not worked:
+                    await self._sleep(self.settings.poll_interval)
+        finally:
+            self.scheduler.shutdown()
         logger.info("worker=%s stopped", self.name)
 
     async def run_once(self) -> bool:
