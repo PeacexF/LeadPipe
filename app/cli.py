@@ -62,6 +62,26 @@ def worker(
 
 
 @app.command()
+def serve(
+    host: Annotated[str | None, typer.Option("--host")] = None,
+    port: Annotated[int | None, typer.Option("--port")] = None,
+    reload: Annotated[bool, typer.Option("--reload")] = False,
+) -> None:
+    """Run the REST API."""
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        "app.api.main:create_app",
+        factory=True,
+        host=host or settings.api_host,
+        port=port or settings.api_port,
+        reload=reload,
+        log_level=settings.log_level.lower(),
+    )
+
+
+@app.command()
 def enqueue(
     source: Annotated[str, typer.Argument(help="Source name.")],
     config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,

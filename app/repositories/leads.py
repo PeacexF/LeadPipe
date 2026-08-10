@@ -107,27 +107,29 @@ class LeadRepository:
         lead.extra = dict(value.extra)
         lead.last_seen_at = max(lead.first_seen_at, value.collected_at)
 
+    async def page(
+        self, filters: LeadFilter | None = None, limit: int = 50, after_id: int = 0
+    ) -> list[LeadExport]:
+        stmt = (
+            select(Lead, _source_names()).where(Lead.id > after_id).order_by(Lead.id).limit(limit)
+        )
+        for condition in _conditions(filters or LeadFilter()):
+            stmt = stmt.where(condition)
+        rows = (await self.session.execute(stmt)).all()
+        return [LeadExport(lead=lead, sources=tuple(sources or ())) for lead, sources in rows]
+
     async def iter_export(
         self, filters: LeadFilter | None = None, batch_size: int = 500
     ) -> AsyncIterator[LeadExport]:
         # Keyset-paged so an export never loads the whole table
         after_id = 0
         while True:
-            stmt = (
-                select(Lead, _source_names())
-                .where(Lead.id > after_id)
-                .order_by(Lead.id)
-                .limit(batch_size)
-            )
-            for condition in _conditions(filters or LeadFilter()):
-                stmt = stmt.where(condition)
-
-            rows = (await self.session.execute(stmt)).all()
+            rows = await self.page(filters, batch_size, after_id)
             if not rows:
                 return
-            for lead, sources in rows:
-                after_id = lead.id
-                yield LeadExport(lead=lead, sources=tuple(sources or ()))
+            for row in rows:
+                after_id = row.lead.id
+                yield row
             if len(rows) < batch_size:
                 return
 

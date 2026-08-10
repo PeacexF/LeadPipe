@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import CollectionJob, CollectionJobResult, JobStatus
+from app.db.models import CollectionJob, CollectionJobResult, JobStatus, Source
 
 
 class JobRepository:
@@ -19,6 +19,40 @@ class JobRepository:
         self.session.add(job)
         await self.session.flush()
         return job
+
+    async def page(
+        self,
+        limit: int = 50,
+        before_id: int | None = None,
+        status: JobStatus | None = None,
+        source: str | None = None,
+    ) -> list[tuple[CollectionJob, str, CollectionJobResult | None]]:
+        stmt = (
+            select(CollectionJob, Source.name, CollectionJobResult)
+            .join(Source, Source.id == CollectionJob.source_id)
+            .outerjoin(CollectionJobResult, CollectionJobResult.job_id == CollectionJob.id)
+            .order_by(CollectionJob.id.desc())
+            .limit(limit)
+        )
+        if before_id is not None:
+            stmt = stmt.where(CollectionJob.id < before_id)
+        if status is not None:
+            stmt = stmt.where(CollectionJob.status == status)
+        if source is not None:
+            stmt = stmt.where(Source.name == source)
+        return list((await self.session.execute(stmt)).all())  # type: ignore[arg-type]
+
+    async def detail(
+        self, job_id: int
+    ) -> tuple[CollectionJob, str, CollectionJobResult | None] | None:
+        stmt = (
+            select(CollectionJob, Source.name, CollectionJobResult)
+            .join(Source, Source.id == CollectionJob.source_id)
+            .outerjoin(CollectionJobResult, CollectionJobResult.job_id == CollectionJob.id)
+            .where(CollectionJob.id == job_id)
+        )
+        row = (await self.session.execute(stmt)).first()
+        return None if row is None else (row[0], row[1], row[2])
 
     async def list_for_source(self, source_id: int) -> Sequence[CollectionJob]:
         stmt = (

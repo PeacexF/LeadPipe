@@ -1,38 +1,19 @@
 import asyncio
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, select, update
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import load_config
-from app.db.models import CollectionJob, JobStatus, Lead, LeadMerge, Source, SourceRecord
-from app.db.session import create_session_factory
+from app.db.models import CollectionJob, JobStatus, Lead, SourceRecord
 from app.jobs import Worker, WorkerConfig, queue
-from app.jobs.service import enqueue, sync_sources
+from app.jobs.service import enqueue
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 CONFIG = load_config(Path("examples/configs/csv.yaml"))
-
-
-@pytest_asyncio.fixture(loop_scope="session")
-async def factory(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """Real committed sessions: SKIP LOCKED needs separate connections, not savepoints."""
-    maker = create_session_factory(engine)
-    async with maker() as session:
-        await sync_sources(session, CONFIG)
-        await session.commit()
-    try:
-        yield maker
-    finally:
-        async with maker() as session:
-            for model in (LeadMerge, SourceRecord, Lead, CollectionJob, Source):
-                await session.execute(delete(model))
-            await session.commit()
 
 
 async def queue_jobs(factory: async_sessionmaker[AsyncSession], count: int) -> list[int]:
