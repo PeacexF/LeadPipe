@@ -1,13 +1,15 @@
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import ColumnElement, ScalarSelect, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Lead, LeadMerge, Source, SourceRecord
 from app.deduplication.fingerprint import Fingerprints, company_slug
 from app.deduplication.matcher import DEFAULT_POLICY, MatchPolicy
 from app.deduplication.merge import Candidate, MergedLead
+from app.domain.filters import LeadFilter
 from app.domain.models import NormalizedLead, SourceRef
 from app.validation.models import LeadValidation
 
@@ -25,6 +27,12 @@ _LEAD_KEYS = frozenset(
         "extra",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class LeadExport:
+    lead: Lead
+    sources: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +107,36 @@ class LeadRepository:
         lead.extra = dict(value.extra)
         lead.last_seen_at = max(lead.first_seen_at, value.collected_at)
 
+    async def iter_export(
+        self, filters: LeadFilter | None = None, batch_size: int = 500
+    ) -> AsyncIterator[LeadExport]:
+        # Keyset-paged so an export never loads the whole table
+        after_id = 0
+        while True:
+            stmt = (
+                select(Lead, _source_names())
+                .where(Lead.id > after_id)
+                .order_by(Lead.id)
+                .limit(batch_size)
+            )
+            for condition in _conditions(filters or LeadFilter()):
+                stmt = stmt.where(condition)
+
+            rows = (await self.session.execute(stmt)).all()
+            if not rows:
+                return
+            for lead, sources in rows:
+                after_id = lead.id
+                yield LeadExport(lead=lead, sources=tuple(sources or ()))
+            if len(rows) < batch_size:
+                return
+
+    async def count(self, filters: LeadFilter | None = None) -> int:
+        stmt = select(func.count()).select_from(Lead)
+        for condition in _conditions(filters or LeadFilter()):
+            stmt = stmt.where(condition)
+        return (await self.session.scalars(stmt)).one()
+
     async def candidates_for(self, lead_id: int) -> list[Candidate]:
         stmt = (
             select(SourceRecord, Source.name, Source.priority)
@@ -170,6 +208,41 @@ class LeadRepository:
         )
         rows = await self.session.execute(stmt)
         return [Provenance(*row) for row in rows.all()]
+
+
+def _source_names() -> ScalarSelect[Any]:
+    return (
+        select(func.array_agg(func.distinct(Source.name)))
+        .select_from(SourceRecord)
+        .join(Source, Source.id == SourceRecord.source_id)
+        .where(SourceRecord.lead_id == Lead.id)
+        .correlate(Lead)
+        .scalar_subquery()
+    )
+
+
+def _conditions(filters: LeadFilter) -> list[ColumnElement[bool]]:
+    conditions: list[ColumnElement[bool]] = []
+    if filters.country:
+        conditions.append(Lead.country == filters.country)
+    if filters.city:
+        conditions.append(func.lower(Lead.city) == filters.city.lower())
+    if filters.validation_status:
+        conditions.append(Lead.validation_status == filters.validation_status)
+    if filters.created_from:
+        conditions.append(Lead.created_at >= filters.created_from)
+    if filters.created_to:
+        conditions.append(Lead.created_at <= filters.created_to)
+    if filters.source:
+        conditions.append(
+            exists(
+                select(SourceRecord.id)
+                .join(Source, Source.id == SourceRecord.source_id)
+                .where(SourceRecord.lead_id == Lead.id, Source.name == filters.source)
+                .correlate(Lead)
+            )
+        )
+    return conditions
 
 
 def _to_normalized(record: SourceRecord, source_name: str) -> NormalizedLead:

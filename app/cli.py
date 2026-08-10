@@ -7,9 +7,13 @@ import typer
 
 from app.config import ConfigError, load_config
 from app.db.session import create_engine, create_session_factory
+from app.domain.filters import LeadFilter
+from app.exports import FORMATS, export_leads
 from app.pipeline import RunStats, run_collection
+from app.repositories import LeadRepository
 from app.settings import get_settings
 from app.sources import SourceError
+from app.validation import ValidationStatus
 
 app = typer.Typer(add_completion=False, help="LeadPipe collection and processing.")
 
@@ -46,6 +50,31 @@ def collect(
 
 
 @app.command()
+def export(
+    export_format: Annotated[str, typer.Option("--format", "-f", help="csv or json.")] = "csv",
+    out: Annotated[Path | None, typer.Option("--out", "-o", help="Output file.")] = None,
+    source: Annotated[str | None, typer.Option("--source")] = None,
+    country: Annotated[str | None, typer.Option("--country")] = None,
+    city: Annotated[str | None, typer.Option("--city")] = None,
+    status: Annotated[str | None, typer.Option("--status", help="valid/invalid/unknown.")] = None,
+) -> None:
+    """Export leads to a file, or to stdout when --out is omitted."""
+    if export_format not in FORMATS:
+        raise typer.BadParameter(f"format must be one of: {', '.join(FORMATS)}")
+    try:
+        validation_status = ValidationStatus(status) if status else None
+    except ValueError as exc:
+        raise typer.BadParameter(f"unknown status: {status}") from exc
+
+    filters = LeadFilter(
+        source=source, country=country, city=city, validation_status=validation_status
+    )
+    written = asyncio.run(_export(export_format, filters, out))
+    if out is not None:
+        typer.echo(f"Wrote {written} leads to {out}")
+
+
+@app.command()
 def sources(
     config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
 ) -> None:
@@ -76,6 +105,27 @@ async def _collect_all(app_config, names: list[str]) -> list[tuple[str, RunStats
     finally:
         await engine.dispose()
     return results
+
+
+async def _export(export_format: str, filters: LeadFilter, out: Path | None) -> int:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            total = await LeadRepository(session).count(filters)
+            handle = out.open("w", encoding="utf-8") if out else None
+            try:
+                async for chunk in export_leads(session, export_format, filters):
+                    if handle is not None:
+                        handle.write(chunk)
+                    else:
+                        typer.echo(chunk, nl=False)
+            finally:
+                if handle is not None:
+                    handle.close()
+            return total
+    finally:
+        await engine.dispose()
 
 
 def _print_stats(name: str, stats: RunStats) -> None:
