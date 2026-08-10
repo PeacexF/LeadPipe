@@ -1,25 +1,21 @@
+<div align="center">
+
+<img src=".github/img/logo.png" alt="LeadPipe" width="160">
+
 # LeadPipe
 
-A configurable Python service for collecting, normalizing, validating and deduplicating
-publicly available business leads from multiple sources.
+**A configurable Python service for collecting, normalizing, validating and deduplicating
+publicly available business leads from multiple sources.**
 
 Built as a reusable automation template for small-business data collection workflows.
 
-```text
-Sources
-   ↓
-Collection
-   ↓
-Normalization
-   ↓
-Validation
-   ↓
-Deduplication
-   ↓
-PostgreSQL
-   ↓
-CSV / JSON / API
-```
+[![CI](https://github.com/PeacexF/LeadPipe/actions/workflows/ci.yml/badge.svg)](https://github.com/PeacexF/LeadPipe/actions/workflows/ci.yml)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+[Quick start](#quick-start) · [Documentation](#documentation) · [Architecture](docs/architecture.md) · [Deduplication](docs/deduplication.md)
+
+</div>
 
 ---
 
@@ -29,142 +25,192 @@ A small business wants a list of potential B2B customers. The data exists across
 public directories, but every source spells things differently:
 
 ```text
-Nordic Clean Oy          NORDIC CLEAN OY          Nordic Clean
+Nordic Clean Oy          NORDIC CLEAN OY              Nordic Clean
 www.nordicclean.test     https://nordicclean.test/    nordicclean.test
 +358 40 123 4567         040-1234567                  (blank)
 Finland                  FI                           Suomi
 ```
 
 Three rows, one company. Multiply that across a few thousand records and manual cleanup
-stops being viable.
+stops being viable — and a naive `SELECT DISTINCT` merges nothing, because no two rows are
+identical.
 
-LeadPipe collects from configured sources, normalizes the values into one schema,
-validates what it can, works out which records describe the same company, and keeps a
-full record of where every field came from.
+LeadPipe collects from configured sources, normalizes the values into one schema, validates
+what it can, works out which records describe the same company, and keeps a full record of
+where every field came from.
+
+```mermaid
+flowchart LR
+    S1[CSV files] --> C
+    S2[JSON APIs] --> C
+    S3[HTML directories] --> C
+    C[Collection] --> N[Normalization]
+    N --> V[Validation]
+    V --> D[Deduplication]
+    D --> DB[(PostgreSQL)]
+    DB --> O1[CSV / JSON export]
+    DB --> O2[REST API]
+```
 
 ---
 
 ## What it does
 
-- **Collects** from configurable sources — no source is hardcoded.
-- **Normalizes** company names, emails, URLs, phone numbers (to E.164) and countries
-  (to ISO-3166 alpha-2).
-- **Validates** with three outcomes — `valid`, `invalid`, `unknown` — so a *missing*
-  email is never confused with a *broken* one. Bad records are flagged and kept, not
-  silently dropped.
-- **Deduplicates** using ordered rules, merging field by field with a documented
-  precedence, and flags uncertain matches for review instead of guessing.
-- **Preserves provenance** — every collected record is stored immutably, and you can
-  always ask which source supplied which field.
-- **Runs collections as background jobs** through a Postgres-backed queue, safe to run
-  with several workers.
-- **Exports** to CSV and JSON, streamed so table size does not become memory size.
-- **Serves a REST API** for leads, jobs, sources and exports.
+| | |
+| --- | --- |
+| **Collects** | From configured sources — CSV, JSON API, HTML listings. No source is hardcoded; adding one is a YAML edit |
+| **Normalizes** | Company names, emails, URLs, phone numbers (to E.164) and countries (to ISO-3166 alpha-2) |
+| **Validates** | Three outcomes — `valid`, `invalid`, `unknown` — so a *missing* email is never confused with a *broken* one. Bad records are flagged and kept, never silently dropped |
+| **Deduplicates** | Ordered rules with explicit confidence, merging field by field with a documented precedence. Uncertain matches are flagged for review instead of guessed |
+| **Explains itself** | Every collected record is stored immutably; you can always ask which source supplied which field, and which rule merged it |
+| **Runs jobs** | A PostgreSQL-backed queue with retries, backoff, heartbeats and stale recovery — safe with several workers, no Redis |
+| **Schedules** | Per-source cron, deduplicated so overlapping runs never pile up |
+| **Exports** | CSV and JSON, streamed, so table size does not become memory size |
+| **Respects limits** | `robots.txt`, per-domain throttling, an identifiable User-Agent, and SSRF guards on every redirect hop |
+| **Forgets** | Deletion cascades to raw records and suppresses the contact, so erasure survives the next collection |
 
 ---
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/) and Docker.
+Requires Docker. Everything below runs against bundled fixtures — no external site is
+contacted.
 
 ```bash
 git clone https://github.com/PeacexF/LeadPipe && cd LeadPipe
 cp .env.example .env
-
-uv sync
-docker compose up -d postgres
-uv run alembic upgrade head
-
-uv run leadpipe collect
+docker compose up -d
 ```
 
-That runs the bundled example source and prints:
-
-```text
-Source: example_csv
-  Collected          20
-  Valid              17
-  Invalid             3
-  Unknown             0
-  Duplicates          5
-  New leads          15
-  Needs review        1
-  Errors              0
-```
-
-Twenty rows in, fifteen leads out. Export them:
+That starts PostgreSQL, applies migrations, and brings up the API, a worker and a local
+fixture server. Check it is ready:
 
 ```bash
-uv run leadpipe export --format csv --out leads.csv
-uv run leadpipe export --format json --city Helsinki
-```
-
-### Through the API
-
-```bash
-uv run leadpipe serve          # http://localhost:8000/docs
-uv run leadpipe worker         # in a second terminal
-```
-
-```bash
-curl -X POST http://localhost:8000/api/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"source":"example_csv"}'
+curl localhost:8000/health/ready
 ```
 
 ```json
-{ "id": 1, "source": "example_csv", "status": "pending", "attempts": 0 }
+{"status":"ok","database":true,"migrations_current":true,
+ "applied_revision":"0003","expected_revision":"0003","detail":null}
 ```
 
-The API returns `202 Accepted` immediately — collection happens in the worker, never
-inside the request. Poll it:
+### Collect
 
 ```bash
-curl http://localhost:8000/api/jobs/1
+for s in example_csv example_api example_directory; do
+  curl -s -X POST localhost:8000/api/jobs \
+    -H 'Content-Type: application/json' -d "{\"source\":\"$s\"}"
+done
+```
+
+The API returns `202 Accepted` immediately — collection happens in the worker, never inside
+a request. A few seconds later:
+
+```bash
+curl -s localhost:8000/api/jobs | jq '.items[] | {source, status, result}'
+```
+
+| Source | Collected | Valid | Invalid | Duplicates | New leads | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| `example_csv` | 20 | 17 | 3 | 5 | 15 | 0 |
+| `example_api` | 7 | 7 | 0 | 3 | 4 | 1 |
+| `example_directory` | 7 | 6 | 1 | 3 | 4 | 1 |
+
+**34 records in, 23 leads out.** The two `errors` are deliberate: a malformed API item, and
+a directory page disallowed by `robots.txt`. Neither ends the run.
+
+Run all three again and `new_leads` is `0` — collections are idempotent.
+
+### Export
+
+```bash
+curl "localhost:8000/api/export?format=csv" -o leads.csv
+curl "localhost:8000/api/export?format=json&city=Helsinki"
 ```
 
 ```json
 {
   "id": 1,
-  "status": "completed",
-  "result": {
-    "collected": 20, "valid": 17, "invalid": 3,
-    "duplicates": 5, "new_leads": 15, "errors": 0
-  }
+  "company_name": "Nordic Clean Oy",
+  "contact_name": "Anna Virtanen",
+  "website": "https://nordicclean.test",
+  "email": "anna.virtanen@nordicclean.test",
+  "phone": "+358401234567",
+  "address": "Mannerheimintie 12 A",
+  "city": "Helsinki",
+  "country": "FI",
+  "validation_status": "valid",
+  "sources": ["example_api", "example_csv", "example_directory"],
+  "first_seen_at": "2026-08-10T16:11:33.409695+00:00",
+  "last_seen_at": "2026-08-10T16:32:37.193517+00:00"
 }
 ```
 
+Three sources contributed to that one row: the CSV supplied the company under its title-case
+spelling, the API the named contact and the precise street, the directory confirmed the
+domain.
+
+Interactive API docs are at <http://localhost:8000/docs>.
+
+### Without Docker
+
 ```bash
-curl "http://localhost:8000/api/export?format=csv" -o leads.csv
+uv sync
+docker compose up -d postgres
+uv run alembic upgrade head
+
+uv run leadpipe collect -c examples/configs/csv.yaml
 ```
 
 ---
 
 ## Seeing deduplication work
 
-The bundled dataset is deliberately dirty — duplicate companies, mixed capitalization,
-inconsistent URLs and phone formats, invalid emails, and near-miss names. Ask any lead
-where it came from:
+The fixtures are deliberately dirty — duplicate companies, mixed capitalization,
+inconsistent URLs and phone formats, invalid emails and near-miss names. Ask any lead where
+it came from:
 
 ```bash
-curl http://localhost:8000/api/leads/1
+curl -s localhost:8000/api/leads/1 | jq '.provenance'
 ```
 
 ```text
-Nordic Clean Oy | info@nordicclean.test | +358401234567
+Nordic Clean Oy | anna.virtanen@nordicclean.test | +358401234567 | Helsinki FI
 
-  rule=initial        conf=1.00  review=false  record=1
-  rule=email          conf=1.00  review=false  record=2
-  rule=website        conf=0.95  review=false  record=8
-  rule=name_location  conf=0.80  review=true   record=16
+  record  1  example_csv        rule=initial        conf=1.00  review=false
+  record  2  example_csv        rule=email          conf=1.00  review=false
+  record  8  example_csv        rule=website        conf=0.95  review=false
+  record 16  example_csv        rule=name_location  conf=0.80  review=true
+  record 21  example_api        rule=website        conf=0.95  review=false
+  record 28  example_directory  rule=website        conf=0.95  review=false
 ```
 
-Four source records. Three were merged automatically by three different rules. The
-fourth — a company with a very similar name in the same city — was **not** merged; it was
-flagged for review and kept as its own lead.
+One company, five records, three sources, two rules. The sixth — record 16, `Nordic Clean
+Oyj`, a different company with a very similar name in the same city — was **not** merged. It
+became its own lead and the link was kept as a review flag.
 
-Re-running a collection is idempotent: records are keyed per source, so the same input
-converges on the same leads rather than duplicating them.
+### The rules
+
+Applied in order; the first match wins.
+
+| Rule | Confidence | Merges automatically |
+| --- | --- | --- |
+| Exact email | 1.00 | yes |
+| Normalized website domain | 0.95 | yes |
+| Phone number (E.164) | 0.90 | yes |
+| Company name + location | ≤ 0.80 | **no** — flagged for review |
+| Source-specific identifier | 1.00 | yes |
+
+Auto-merge requires 0.85. Name matching is capped at 0.80, so by construction it can never
+merge two companies on its own — it uses trigram similarity implemented to match
+PostgreSQL's `pg_trgm`, so the SQL candidate lookup and the Python matcher agree on what
+"similar" means.
+
+Placeholders cannot create matches: emails need an `@`, phones must be valid E.164, and an
+unparseable website yields no domain. Two unrelated companies that both wrote `n/a` are
+never merged.
+
+→ [Full rules, thresholds and merge precedence](docs/deduplication.md)
 
 ---
 
@@ -179,59 +225,76 @@ defaults:
 sources:
   - name: example_csv
     type: csv
-    enabled: true
     priority: 0
     path: ./examples/data/companies.csv
     external_id_field: id
     mapping:
       company_name: name
       email: email
-      phone: phone
       city: city
       country: country
+
+  - name: partner_directory
+    type: html
+    priority: 10
+    url: ${DIRECTORY_URL}
+    item_selector: "li.company"
+    detail_link: "a.profile@href"
+    requests_per_second: 1
+    contact: ops@example.com
+    schedule:
+      enabled: true
+      cron: "30 6 * * 1"
+      timezone: Europe/Helsinki
+    mapping:
+      company_name: ".company-name"
+      email: ".email a@href"
 ```
 
-`priority` decides which source wins when two disagree about a field. Values support
-`${ENV_VAR}` and `${ENV_VAR:-default}` interpolation, so credentials stay out of version
-control.
+`priority` decides which source wins when two disagree about a field. `${VAR}` and
+`${VAR:-default}` interpolation keeps credentials out of version control. Runtime settings
+come from `.env`, which is the single source of truth for the environment.
 
-Runtime settings come from the environment — see `.env.example`.
+→ [Every key and environment variable](docs/configuration.md)
 
 ---
 
-## API
+## Interfaces
+
+### REST API
 
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
+| `GET` | `/health/ready` | Database reachable **and** schema current; `503` otherwise |
 | `GET` | `/api/leads` | Keyset pagination, filterable |
 | `GET` | `/api/leads/{id}` | Includes full provenance |
+| `DELETE` | `/api/leads/{id}` | Erases the lead and its records; suppresses by default 🔑 |
 | `GET` | `/api/jobs` | Newest first, filter by status and source |
 | `GET` | `/api/jobs/{id}` | Includes run statistics |
-| `POST` | `/api/jobs` | Enqueues a collection, returns `202` |
+| `POST` | `/api/jobs` | Enqueues a collection, returns `202` 🔑 |
 | `GET` | `/api/sources` | Configured sources |
+| `GET` | `/api/suppressions` | Blocked contacts (`POST`/`DELETE` 🔑) |
 | `GET` | `/api/export` | `format=csv\|json`, streamed |
 
-Leads and exports share the same filters: `source`, `country`, `city`,
-`validation_status`. Page size is capped server-side.
+🔑 requires `X-API-Key` when `LEADPIPE_API_KEY` is set. Reads stay open. Leads and exports
+share the same filters: `source`, `country`, `city`, `validation_status`.
 
-`POST /api/jobs` requires an `X-API-Key` header when `LEADPIPE_API_KEY` is set; reads
-stay open. Interactive documentation is at `/docs`.
+### CLI
 
----
+| Command | Does |
+| --- | --- |
+| `leadpipe collect [--source X]` | Run a collection now, in the foreground |
+| `leadpipe enqueue X` | Queue one for a worker |
+| `leadpipe worker` | Process the queue and run schedules |
+| `leadpipe serve` | Run the API |
+| `leadpipe export --format csv --out leads.csv` | Export leads |
+| `leadpipe sources` | List configured sources and their schedules |
+| `leadpipe suppress <value>` / `suppressions` | Manage blocked contacts |
+| `leadpipe purge --days 365 [--dry-run]` | Apply the retention policy |
 
-## CLI
-
-```bash
-uv run leadpipe collect  --source example_csv   # run a collection now
-uv run leadpipe enqueue  example_csv            # queue one for a worker
-uv run leadpipe worker                          # process queued jobs
-uv run leadpipe export   --format csv           # export leads
-uv run leadpipe sources                         # list configured sources
-uv run leadpipe serve                           # run the API
-```
-
-The CLI and the API are thin adapters over the same pipeline — neither owns any logic.
+The CLI and the API are thin adapters over the same pipeline — neither owns any logic, and
+both read the same configuration.
 
 ---
 
@@ -240,65 +303,82 @@ The CLI and the API are thin adapters over the same pipeline — neither owns an
 ```text
 app/
 ├── domain/          value types shared across layers
-├── normalization/   pure functions: names, emails, urls, phones, locations
+├── normalization/   pure functions: text, email, url, phone, location
 ├── validation/      per-field tri-state validation
 ├── deduplication/   fingerprints, match rules, merge policy
-├── sources/         source adapters and the registry
-├── pipeline/        collect → normalize → validate → dedup → persist
-├── jobs/            postgres-backed queue and worker
+├── fetch/           HTTP client, robots.txt, throttling, SSRF guards
+├── sources/         source adapters and the type registry
+├── pipeline/        the five steps, wired together
+├── jobs/            queue, worker, scheduler
 ├── repositories/    database access
 ├── exports/         streaming CSV and JSON writers
 └── api/             FastAPI application
 ```
 
-Normalization, validation and deduplication are pure functions with no database and no
-I/O, which is why they are the fastest and most thoroughly tested part of the system.
+Normalization, validation and deduplication are pure functions with no database and no I/O,
+which is why they are the fastest and most thoroughly tested part of the system.
 
 ### Storage
 
-Three tables carry the interesting part:
-
-```text
-source_records          leads                 lead_merges
-  raw payload    ─┐       merged canonical      lead_id
-  normalized      ├──▶    values                source_record_id
-  fingerprints    │       first_seen_at         rule
-  lead_id ────────┘       last_seen_at          confidence
-                                                needs_review
+```mermaid
+erDiagram
+    sources ||--o{ source_records : produced
+    source_records }o--|| leads : "merged into"
+    leads ||--o{ lead_merges : explains
+    source_records ||--o{ lead_merges : cited
 ```
 
-`source_records` is immutable and holds one row per source per sighting, including the
-untouched original payload. `leads` is derived from it. `lead_merges` records *why* each
-link exists.
+| Table | Holds |
+| --- | --- |
+| `source_records` | One immutable row per source per sighting: the untouched payload, the normalized values, fingerprints, validation |
+| `leads` | The merged canonical company, derived from its records |
+| `lead_merges` | *Why* each record is attached: rule, confidence, review flag |
 
-Keeping these separate is what makes provenance answerable, merges explainable, and
-re-runs idempotent — and because the raw payloads are retained, the pipeline can be
-re-run against historical data when normalization rules change.
+Keeping these separate is what makes provenance answerable, merges explainable and re-runs
+idempotent — and because the raw payloads are retained, the pipeline can be re-run against
+historical data when normalization rules change.
 
-### Deduplication rules
+The job queue lives in the same database, claimed with `SELECT ... FOR UPDATE SKIP LOCKED`.
+For a service that already requires PostgreSQL, a second broker would buy throughput this
+workload does not need.
 
-Applied in order; the first match wins:
+→ [Architecture in full](docs/architecture.md) · [Running it](docs/operations.md)
 
-| Rule | Confidence | Merges automatically |
-| --- | --- | --- |
-| Exact email | 1.00 | yes |
-| Normalized website domain | 0.95 | yes |
-| Phone number (E.164) | 0.90 | yes |
-| Company name + location | ≤ 0.80 | **no** — flagged for review |
-| Source-specific identifier | 1.00 | yes |
+---
 
-Name matching uses trigram similarity, implemented to match PostgreSQL's `pg_trgm` so the
-in-memory matcher and the SQL candidate lookup agree on what "similar" means. Because it
-is inherently fuzzy, it is capped below the auto-merge threshold — it never merges records
-on its own.
+## Collecting responsibly
 
-Placeholder values cannot create matches: emails need an `@`, phones need to be valid
-E.164, and unparseable websites yield no domain. Two unrelated companies both listing
-`n/a` will not be merged.
+The constraints in this domain are mostly legal, so they are part of the design rather than
+a disclaimer:
 
-When records do merge, each field is taken from the best candidate — non-null over null,
-then higher source priority, then more recent, then the more complete record — and the
-origin of every field is recorded.
+- `robots.txt` is fetched, cached and obeyed; `Crawl-delay` is honoured
+- requests are throttled per domain and the client identifies itself
+- private, loopback and link-local addresses are refused unless explicitly allowed
+- contact data is redacted from every log line
+- deleting a lead erases its raw records and suppresses the contact, so it cannot return
+- `RETENTION_DAYS` and `leadpipe purge` implement storage limitation
+
+There is deliberately no support for bypassing logins, defeating anti-bot measures or
+rotating identities. Absent by design, not unimplemented.
+
+→ [Lawful basis, erasure and the operator checklist](docs/legal.md)
+
+---
+
+## Documentation
+
+| Document | Read it for |
+| --- | --- |
+| [Architecture](docs/architecture.md) | The pipeline, the storage model, why the queue is in PostgreSQL |
+| [Deduplication](docs/deduplication.md) | Fingerprints, the five rules, thresholds, merge precedence |
+| [Configuration](docs/configuration.md) | Every YAML key, adapter option and environment variable |
+| [Operations](docs/operations.md) | Workers, retries, health checks, logging, retention |
+| [Adding a source](docs/adding-a-source.md) | The `Source` protocol, with a worked adapter |
+| [Legal](docs/legal.md) | Lawful basis, robots posture, erasure, what is never collected |
+| [Limitations](docs/limitations.md) | Known gaps, honestly |
+| [Examples](examples/README.md) | What every fixture row is designed to trigger |
+
+The API reference is generated, not hand-written: <http://localhost:8000/docs>.
 
 ---
 
@@ -311,29 +391,27 @@ make format
 ```
 
 Integration tests start a throwaway PostgreSQL container automatically, or use
-`TEST_DATABASE_URL` if you would rather point them at your own. Migrations run against
-that container on every test run, so the schema is verified rather than assumed.
-
-The test suite does not touch the network or any external website.
+`TEST_DATABASE_URL` to point at your own. Migrations run against that container on every
+test run, so the schema is verified rather than assumed. The suite never touches the
+network.
 
 ---
 
-## Status
+## Limitations
 
-Development
+- Website matching uses the hostname, not the registrable domain, so `shop.example.com` and
+  `example.com` are different companies
+- Company-name matching never merges on its own, and there is no UI for reviewing the pairs
+  it flags
+- The queue is single-database: correct for several workers, not a distributed workflow
+  platform
+- Email validation is syntax only — no MX lookup, and no mailbox probing by design
+- Every collection is a full run; there is no incremental mode
 
-### Limitations
-
-- Website matching uses the hostname, not the registrable domain, so
-  `shop.example.com` and `example.com` are treated as different companies.
-- Company-name matching never merges on its own by design; those pairs need review.
-- The queue is single-database and intended for a modest number of workers, not a
-  distributed workflow platform.
-- Collection is deliberately limited to legitimate, publicly accessible sources. There is
-  no support for bypassing access controls, anti-bot measures or authentication.
+→ [The complete list](docs/limitations.md)
 
 ---
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE)

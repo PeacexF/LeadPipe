@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +19,12 @@ class Settings(BaseSettings):
     retention_days: int | None = None
     log_level: str = "INFO"
     log_format: str = "console"
+
+    @field_validator("retention_days", mode="before")
+    @classmethod
+    def blank_means_unset(cls, value: Any) -> Any:
+        # RETENTION_DAYS= in a .env is "not set", not a broken integer
+        return None if value == "" else value
 
     @property
     def allowed_origins(self) -> list[str]:
