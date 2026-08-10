@@ -3,7 +3,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.normalization.text import clean_text
 
-_HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 
 TRACKING_PARAMS = frozenset(
     {
@@ -46,7 +46,7 @@ def normalize_url(value: str | None) -> str | None:
     except ValueError:
         return text
 
-    if not host or not _HOSTNAME.match(host):
+    if not host or not HOSTNAME.match(host):
         return text
 
     host = host.removeprefix("www.")
