@@ -484,6 +484,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "lxml" },
     { name = "phonenumbers" },
     { name = "pydantic" },
@@ -491,13 +492,11 @@ dependencies = [
     { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "typer" },
-    { name = "types-pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -505,6 +504,7 @@ dev = [
     { name = "ruff" },
     { name = "testcontainers" },
     { name = "types-beautifulsoup4" },
+    { name = "types-pyyaml" },
 ]
 
 [package.metadata]
@@ -515,6 +515,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.141.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "lxml", specifier = ">=6.1.1" },
     { name = "phonenumbers", specifier = ">=8.13" },
     { name = "pydantic", specifier = ">=2.9" },
@@ -522,13 +523,11 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "typer", specifier = ">=0.27.1" },
-    { name = "types-pyyaml", specifier = ">=6.0.12.20260724" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
@@ -536,6 +535,7 @@ dev = [
     { name = "ruff", specifier = ">=0.7" },
     { name = "testcontainers", extras = ["postgres"], specifier = ">=4.15.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.12.0.20250516" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260724" },
 ]
 
 [[package]]

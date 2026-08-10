@@ -1,0 +1,81 @@
+defaults:
+  region: FI
+
+sources:
+
+  - name: example_csv
+    type: csv
+    enabled: true
+    priority: 0
+    path: ./examples/data/companies.csv
+    external_id_field: id
+
+    schedule:
+      enabled: false
+      cron: "0 9 * * *"
+      timezone: Europe/Helsinki
+
+    mapping:
+      company_name: name
+      contact_name: contact
+      website: website
+      email: email
+      phone: phone
+      address: street
+      city: city
+      country: country
+
+  - name: example_api
+    type: api
+    enabled: true
+    priority: 10
+
+    url: ${FIXTURES_URL:-http://localhost:8080}/companies_api.json
+    items_path: data
+    next_path: meta.next
+    max_pages: 5
+    external_id_field: id
+
+    allow_private_hosts: true
+    requests_per_second: 10
+    timeout: 5.0
+    max_response_bytes: 1000000
+
+    mapping:
+      company_name: name
+      contact_name: contact.name
+      email: contact.email
+      phone: contact.phone
+      website: website
+      address: address.street
+      city: address.city
+      country: address.country
+
+  - name: example_directory
+    type: html
+    enabled: true
+    priority: 5
+
+    url: ${FIXTURES_URL:-http://localhost:8080}/directory/index.html
+    item_selector: "li.company"
+    detail_link: "a.profile@href"
+    next_selector: "a.next"
+    max_pages: 5
+
+    allow_private_hosts: true
+    requests_per_second: 20
+    timeout: 5.0
+    max_response_bytes: 2000000
+
+    mapping:
+      company_name: ".company-name"
+      website: ".website a@href"
+      email: ".email a@href"
+      phone: ".phone"
+      city: ".city"
+
+    detail_mapping:
+      contact_name: ".contact-name"
+      address: ".street"
+      city: ".city"
+      country: ".country"

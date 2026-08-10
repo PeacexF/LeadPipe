@@ -20,14 +20,12 @@ from app.validation import ValidationStatus
 
 app = typer.Typer(add_completion=False, help="LeadPipe collection and processing.")
 
-DEFAULT_CONFIG = Path("examples/configs/csv.yaml")
-
 
 @app.command()
 def collect(
-    config: Annotated[Path, typer.Option("--config", "-c", help="Source configuration file.")] = (
-        DEFAULT_CONFIG
-    ),
+    config: Annotated[
+        Path | None, typer.Option("--config", "-c", help="Source configuration file.")
+    ] = None,
     source: Annotated[str | None, typer.Option("--source", "-s", help="Source name.")] = None,
 ) -> None:
     """Run a collection for one source, or every enabled source."""
@@ -51,7 +49,7 @@ def collect(
 
 @app.command()
 def worker(
-    config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     poll_interval: Annotated[float, typer.Option("--poll-interval")] = 1.0,
     once: Annotated[bool, typer.Option("--once", help="Process one job, then exit.")] = False,
     scheduler: Annotated[
@@ -87,7 +85,7 @@ def serve(
 @app.command()
 def enqueue(
     source: Annotated[str, typer.Argument(help="Source name.")],
-    config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
 ) -> None:
     """Queue a collection job for a worker to pick up."""
     _configure_logging()
@@ -126,7 +124,7 @@ def export(
 
 @app.command()
 def sources(
-    config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
 ) -> None:
     """List configured sources."""
     app_config = _load(config)
@@ -230,9 +228,11 @@ def _print_stats(name: str, stats: RunStats) -> None:
         typer.echo(f"  {label:<14} {value:>6}")
 
 
-def _load(config: Path) -> AppConfig:
+def _load(config: Path | None) -> AppConfig:
+    # one source of truth with the api, which also reads CONFIG_PATH
+    path = config or Path(get_settings().config_path)
     try:
-        return load_config(config)
+        return load_config(path)
     except ConfigError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
