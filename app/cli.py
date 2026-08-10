@@ -1,14 +1,17 @@
 import asyncio
 import logging
+import signal
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from app.config import ConfigError, load_config
+from app.config import AppConfig, ConfigError, load_config
 from app.db.session import create_engine, create_session_factory
 from app.domain.filters import LeadFilter
 from app.exports import FORMATS, export_leads
+from app.jobs import Worker, WorkerConfig, sync_sources
+from app.jobs.service import enqueue as enqueue_job
 from app.pipeline import RunStats, run_collection
 from app.repositories import LeadRepository
 from app.settings import get_settings
@@ -29,10 +32,7 @@ def collect(
 ) -> None:
     """Run a collection for one source, or every enabled source."""
     _configure_logging()
-    try:
-        app_config = load_config(config)
-    except ConfigError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    app_config = _load(config)
 
     names = [source] if source else [s.name for s in app_config.enabled_sources()]
     if not names:
@@ -47,6 +47,33 @@ def collect(
 
     for name, stats in results:
         _print_stats(name, stats)
+
+
+@app.command()
+def worker(
+    config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
+    poll_interval: Annotated[float, typer.Option("--poll-interval")] = 1.0,
+    once: Annotated[bool, typer.Option("--once", help="Process one job, then exit.")] = False,
+) -> None:
+    """Run the job worker."""
+    _configure_logging()
+    app_config = _load(config)
+    asyncio.run(_run_worker(app_config, poll_interval, once))
+
+
+@app.command()
+def enqueue(
+    source: Annotated[str, typer.Argument(help="Source name.")],
+    config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
+) -> None:
+    """Queue a collection job for a worker to pick up."""
+    _configure_logging()
+    app_config = _load(config)
+    try:
+        job_id = asyncio.run(_enqueue(app_config, source))
+    except KeyError as exc:
+        raise typer.BadParameter(f"unknown source: {source}") from exc
+    typer.echo(f"Queued job {job_id} for {source}")
 
 
 @app.command()
@@ -79,11 +106,7 @@ def sources(
     config: Annotated[Path, typer.Option("--config", "-c")] = DEFAULT_CONFIG,
 ) -> None:
     """List configured sources."""
-    try:
-        app_config = load_config(config)
-    except ConfigError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-
+    app_config = _load(config)
     for source_config in app_config.sources:
         state = "enabled" if source_config.enabled else "disabled"
         typer.echo(
@@ -105,6 +128,39 @@ async def _collect_all(app_config, names: list[str]) -> list[tuple[str, RunStats
     finally:
         await engine.dispose()
     return results
+
+
+async def _run_worker(app_config: AppConfig, poll_interval: float, once: bool) -> None:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            await sync_sources(session, app_config)
+            await session.commit()
+
+        instance = Worker(factory, app_config, settings=WorkerConfig(poll_interval=poll_interval))
+        if once:
+            await instance.run_once()
+            return
+
+        loop = asyncio.get_running_loop()
+        for signal_name in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(signal_name, instance.stop)
+        await instance.run_forever()
+    finally:
+        await engine.dispose()
+
+
+async def _enqueue(app_config: AppConfig, source: str) -> int:
+    engine = create_engine(get_settings().database_url)
+    factory = create_session_factory(engine)
+    try:
+        async with factory() as session:
+            job = await enqueue_job(session, app_config, source)
+            await session.commit()
+            return job.id
+    finally:
+        await engine.dispose()
 
 
 async def _export(export_format: str, filters: LeadFilter, out: Path | None) -> int:
@@ -141,6 +197,13 @@ def _print_stats(name: str, stats: RunStats) -> None:
         ("Errors", stats.errors),
     ):
         typer.echo(f"  {label:<14} {value:>6}")
+
+
+def _load(config: Path) -> AppConfig:
+    try:
+        return load_config(config)
+    except ConfigError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _configure_logging() -> None:
