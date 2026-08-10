@@ -1,0 +1,32 @@
+defaults:
+  region: FI
+
+sources:
+  - name: example_directory
+    type: html
+    enabled: true
+    priority: 5
+
+    url: ${FIXTURES_URL:-http://localhost:8080}/directory/index.html
+    item_selector: "li.company"
+    detail_link: "a.profile@href"
+    next_selector: "a.next"
+    max_pages: 5
+
+    allow_private_hosts: true
+    requests_per_second: 20
+    timeout: 5.0
+    max_response_bytes: 2000000
+
+    mapping:
+      company_name: ".company-name"
+      website: ".website a@href"
+      email: ".email a@href"
+      phone: ".phone"
+      city: ".city"
+
+    detail_mapping:
+      contact_name: ".contact-name"
+      address: ".street"
+      city: ".city"
+      country: ".country"
