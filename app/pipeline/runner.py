@@ -1,4 +1,3 @@
-import logging
 from dataclasses import asdict, dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,9 +14,10 @@ from app.repositories import (
     SourceRepository,
 )
 from app.sources import RecordError, SourceError, build_source
+from app.telemetry import bind, get_logger, unbind
 from app.validation import ValidationStatus, validate_lead
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 INITIAL_RULE = "initial"
 
@@ -60,35 +60,38 @@ async def run_collection(
     if job is None:
         raise SourceError(f"job {job_id} not found")
     await jobs.mark_running(job)
+    bind(job=job.id, source=source.name)
+    logger.info("collection started")
 
     stats = RunStats()
     try:
-        adapter = build_source(source_config)
         try:
-            async for item in adapter.collect():
-                if isinstance(item, RecordError):
-                    stats.errors += 1
-                    logger.warning(
-                        "job=%s source=%s bad_record=%s", job.id, source.name, item.message
-                    )
-                    continue
-                try:
-                    await _ingest(session, source, source_config, item, region, job.id, stats)
-                except Exception:  # one bad record must not end the run
-                    stats.errors += 1
-                    logger.exception("job=%s source=%s record failed", job.id, source.name)
-        finally:
-            await adapter.aclose()
-    except SourceError as exc:
-        await jobs.save_results(job.id, **_persisted(stats))
-        await jobs.mark_finished(job, JobStatus.FAILED, error=str(exc))
-        logger.error("job=%s source=%s failed: %s", job.id, source.name, exc)
-        raise
+            adapter = build_source(source_config)
+            try:
+                async for item in adapter.collect():
+                    if isinstance(item, RecordError):
+                        stats.errors += 1
+                        logger.warning("record rejected", reason=item.message)
+                        continue
+                    try:
+                        await _ingest(session, source, source_config, item, region, job.id, stats)
+                    except Exception:  # one bad record must not end the run
+                        stats.errors += 1
+                        logger.exception("record failed")
+            finally:
+                await adapter.aclose()
+        except SourceError as exc:
+            await jobs.save_results(job.id, **_persisted(stats))
+            await jobs.mark_finished(job, JobStatus.FAILED, error=str(exc))
+            logger.error("collection failed", reason=str(exc), **stats.as_dict())
+            raise
 
-    await jobs.save_results(job.id, **_persisted(stats))
-    await jobs.mark_finished(job, JobStatus.COMPLETED)
-    logger.info("job=%s source=%s completed %s", job.id, source.name, stats.as_dict())
-    return stats
+        await jobs.save_results(job.id, **_persisted(stats))
+        await jobs.mark_finished(job, JobStatus.COMPLETED)
+        logger.info("collection completed", **stats.as_dict())
+        return stats
+    finally:
+        unbind("job", "source")
 
 
 async def _ingest(

@@ -21,8 +21,10 @@ from app.api.schemas import (
     LeadDetail,
     LeadOut,
     Page,
+    Ready,
     SourceOut,
 )
+from app.db.health import check_readiness
 from app.db.models import JobStatus
 from app.domain.filters import LeadFilter
 from app.exports import CONTENT_TYPES, FORMATS, export_leads
@@ -36,6 +38,22 @@ api = APIRouter(prefix="/api")
 @router.get("/health", response_model=Health, tags=["health"])
 async def health() -> Health:
     return Health(status="ok", version=__version__)
+
+
+@router.get("/health/ready", response_model=Ready, tags=["health"])
+async def ready(session: SessionDep, response: Response) -> Ready:
+    # Readiness: the database answers and the schema is at the expected revision
+    result = await check_readiness(session)
+    if not result.ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return Ready(
+        status="ok" if result.ready else "not ready",
+        database=result.database,
+        migrations_current=result.migrations_current,
+        applied_revision=result.applied_revision,
+        expected_revision=result.expected_revision,
+        detail=result.detail,
+    )
 
 
 @api.get("/leads", response_model=Page[LeadOut], tags=["leads"])

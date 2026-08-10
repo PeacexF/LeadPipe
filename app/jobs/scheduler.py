@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -8,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config.cron import build_trigger
 from app.config.models import AppConfig, SourceConfig
 from app.jobs.service import enqueue_if_idle
+from app.telemetry import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def trigger_for(source: SourceConfig) -> CronTrigger:
@@ -50,10 +50,10 @@ class CollectionScheduler:
             )
             scheduled.append(source.name)
             logger.info(
-                "scheduled source=%s cron=%s tz=%s",
-                source.name,
-                source.schedule.cron if source.schedule else "",
-                source.schedule.timezone if source.schedule else "",
+                "source scheduled",
+                source=source.name,
+                cron=source.schedule.cron if source.schedule else "",
+                timezone=source.schedule.timezone if source.schedule else "",
             )
         return scheduled
 
@@ -63,9 +63,9 @@ class CollectionScheduler:
             await session.commit()
 
         if job is None:
-            logger.info("source=%s already queued or running, skipping tick", source_name)
+            logger.info("tick skipped, job already active", source=source_name)
             return None
-        logger.info("job=%s source=%s queued by schedule", job.id, source_name)
+        logger.info("job queued by schedule", job=job.id, source=source_name)
         return job.id
 
     def start(self) -> None:

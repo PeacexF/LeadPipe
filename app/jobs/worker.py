@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -12,8 +11,9 @@ from app.jobs import queue
 from app.jobs.queue import ClaimedJob
 from app.jobs.scheduler import CollectionScheduler
 from app.pipeline import run_collection
+from app.telemetry import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def default_worker_name() -> str:
@@ -49,7 +49,7 @@ class Worker:
         self.stopping.set()
 
     async def run_forever(self) -> None:
-        logger.info("worker=%s started", self.name)
+        logger.info("worker started", worker=self.name)
         if self.settings.scheduling:
             self.scheduler.configure()
             self.scheduler.start()
@@ -61,7 +61,7 @@ class Worker:
                     await self._sleep(self.settings.poll_interval)
         finally:
             self.scheduler.shutdown()
-        logger.info("worker=%s stopped", self.name)
+        logger.info("worker stopped", worker=self.name)
 
     async def run_once(self) -> bool:
         async with self.session_factory() as session:
@@ -71,11 +71,11 @@ class Worker:
             return False
 
         logger.info(
-            "job=%s source=%s attempt=%s worker=%s claimed",
-            job.id,
-            job.source_name,
-            job.attempts,
-            self.name,
+            "job claimed",
+            job=job.id,
+            source=job.source_name,
+            attempt=job.attempts,
+            worker=self.name,
         )
         beat = asyncio.create_task(self._heartbeat(job.id))
         try:
@@ -98,13 +98,13 @@ class Worker:
             status = await queue.fail(session, job, f"{type(exc).__name__}: {exc}")
             await session.commit()
         logger.error(
-            "job=%s source=%s attempt=%s/%s failed -> %s: %s",
-            job.id,
-            job.source_name,
-            job.attempts,
-            job.max_attempts,
-            status.value,
-            exc,
+            "job failed",
+            job=job.id,
+            source=job.source_name,
+            attempt=job.attempts,
+            max_attempts=job.max_attempts,
+            outcome=status.value,
+            reason=str(exc),
         )
 
     async def _heartbeat(self, job_id: int) -> None:
@@ -123,7 +123,7 @@ class Worker:
             recovered = await queue.recover_stale(session, self.settings.stale_after)
             await session.commit()
         if recovered:
-            logger.warning("worker=%s recovered %s stale job(s)", self.name, recovered)
+            logger.warning("recovered stale jobs", worker=self.name, count=recovered)
 
     async def _sleep(self, seconds: float) -> None:
         with contextlib.suppress(TimeoutError):

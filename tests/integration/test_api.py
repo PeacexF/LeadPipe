@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.api.main import create_app
 from app.config import load_config
@@ -30,6 +34,11 @@ def build_client(factory: async_sessionmaker[AsyncSession], **overrides: object)
 async def client(factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncClient]:
     async with build_client(factory) as instance:
         yield instance
+
+
+def broken_factory() -> async_sessionmaker[AsyncSession]:
+    engine = create_async_engine("postgresql+asyncpg://nobody@127.0.0.1:1/none")
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture(loop_scope="session")
@@ -209,3 +218,61 @@ async def test_openapi_schema_is_served(client: AsyncClient) -> None:
     paths = response.json()["paths"]
     for path in ("/health", "/api/leads", "/api/leads/{lead_id}", "/api/jobs", "/api/export"):
         assert path in paths
+
+
+async def test_readiness_reports_a_current_schema(client: AsyncClient) -> None:
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["database"] is True
+    assert body["migrations_current"] is True
+    assert body["applied_revision"] == body["expected_revision"]
+
+
+async def test_liveness_does_not_touch_the_database(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    settings = Settings(database_url="postgresql+asyncpg://nobody@127.0.0.1:1/none")
+    app = create_app(settings=settings, config=CONFIG, session_factory=broken_factory())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.get("/health")).status_code == 200
+
+
+async def test_readiness_fails_when_the_database_is_unreachable() -> None:
+    settings = Settings(database_url="postgresql+asyncpg://nobody@127.0.0.1:1/none")
+    app = create_app(settings=settings, config=CONFIG, session_factory=broken_factory())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "not ready"
+    assert response.json()["database"] is False
+
+
+async def test_request_id_is_generated_and_returned(client: AsyncClient) -> None:
+    response = await client.get("/health")
+    assert response.headers["X-Request-ID"]
+
+
+async def test_supplied_request_id_is_echoed(client: AsyncClient) -> None:
+    response = await client.get("/health", headers={"X-Request-ID": "trace-me-123"})
+    assert response.headers["X-Request-ID"] == "trace-me-123"
+
+
+async def test_readiness_reports_missing_migration_scripts(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.db import health
+
+    health.head_revision.cache_clear()
+    monkeypatch.setattr(health, "ALEMBIC_INI", tmp_path / "alembic.ini")
+    monkeypatch.setattr(health, "MIGRATIONS", tmp_path / "migrations")
+    try:
+        response = await client.get("/health/ready")
+        assert response.status_code == 503
+        assert response.json()["migrations_current"] is False
+        assert response.json()["detail"] == "migration scripts not found"
+    finally:
+        health.head_revision.cache_clear()

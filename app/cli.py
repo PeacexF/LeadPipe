@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import signal
 from pathlib import Path
 from typing import Annotated
@@ -16,6 +15,7 @@ from app.pipeline import RunStats, run_collection
 from app.repositories import LeadRepository
 from app.settings import get_settings
 from app.sources import SourceError
+from app.telemetry import configure_logging
 from app.validation import ValidationStatus
 
 app = typer.Typer(add_completion=False, help="LeadPipe collection and processing.")
@@ -238,10 +238,8 @@ def _load(config: Path | None) -> AppConfig:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(
-        level=get_settings().log_level.upper(),
-        format="%(levelname)-5s %(message)s",
-    )
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
 
 
 if __name__ == "__main__":

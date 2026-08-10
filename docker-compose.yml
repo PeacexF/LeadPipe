@@ -7,6 +7,7 @@ x-app: &app
     LEADPIPE_API_KEY: ${LEADPIPE_API_KEY:-}
     CORS_ORIGINS: ${CORS_ORIGINS:-}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    LOG_FORMAT: ${LOG_FORMAT:-json}
   depends_on:
     migrate:
       condition: service_completed_successfully

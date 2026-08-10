@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -19,8 +18,9 @@ from app.fetch.limits import DomainThrottle
 from app.fetch.policy import FetchPolicy
 from app.fetch.robots import RobotsCache
 from app.fetch.urls import Resolver, ensure_safe_url, system_resolver
+from app.telemetry import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -129,7 +129,7 @@ class Fetcher:
 
             if attempt < self.policy.retries:
                 await asyncio.sleep(self._backoff(attempt))
-                logger.warning("retrying %s after %s", url, last)
+                logger.warning("retrying request", url=url, reason=str(last))
 
         raise FetchError(f"giving up on {url}: {last}") from last
 

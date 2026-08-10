@@ -158,3 +158,12 @@ class SourceOut(BaseModel):
 class Health(BaseModel):
     status: str
     version: str
+
+
+class Ready(BaseModel):
+    status: str
+    database: bool
+    migrations_current: bool
+    applied_revision: str | None = None
+    expected_revision: str | None = None
+    detail: str | None = None
