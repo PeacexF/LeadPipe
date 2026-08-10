@@ -1,0 +1,71 @@
+{
+  "meta": {
+    "page": 1,
+    "next": "companies_api_page2.json"
+  },
+  "data": [
+    {
+      "id": "API-100",
+      "name": "Nordic Clean Oy",
+      "website": "https://www.nordicclean.test",
+      "contact": {
+        "name": "Anna Virtanen",
+        "email": "anna.virtanen@nordicclean.test",
+        "phone": "+358 40 123 4567"
+      },
+      "address": {
+        "street": "Mannerheimintie 12 A",
+        "city": "Helsinki",
+        "country": "Finland"
+      },
+      "vat_id": "FI12345678"
+    },
+    {
+      "id": "API-101",
+      "name": "Helsinki Facility Services Oy",
+      "website": "helsinkifacility.test",
+      "contact": {
+        "name": null,
+        "email": "sales@helsinkifacility.test",
+        "phone": "+358 9 123 4567"
+      },
+      "address": {
+        "street": "Aleksanterinkatu 5",
+        "city": "HELSINKI",
+        "country": "FI"
+      },
+      "vat_id": "FI87654321"
+    },
+    {
+      "id": "API-102",
+      "name": "Baltic Facility Group AS",
+      "website": "https://balticfacility.test/",
+      "contact": {
+        "name": "Kristjan Tamm",
+        "email": "info@balticfacility.test",
+        "phone": "+372 5555 1234"
+      },
+      "address": {
+        "street": "Narva mnt 7",
+        "city": "Tallinn",
+        "country": "Estonia"
+      }
+    },
+    {
+      "id": "API-103",
+      "name": "Rovaniemi Clean Ky",
+      "website": null,
+      "contact": {
+        "name": "Elina Karppinen",
+        "email": "elina@rovaniemiclean.test",
+        "phone": "016 555 8899"
+      },
+      "address": {
+        "street": "Koskikatu 20",
+        "city": "Rovaniemi",
+        "country": "Finland"
+      }
+    },
+    "not-an-object"
+  ]
+}

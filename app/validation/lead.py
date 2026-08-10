@@ -7,7 +7,9 @@ from app.validation.rules import (
     validate_url_field,
 )
 
-OPTIONAL_FIELDS = ("email", "website", "phone", "source_url")
+CONTACT_FIELDS = ("email", "website", "phone")
+
+METADATA_FIELDS = ("source_url",)
 
 
 def validate_lead(lead: NormalizedLead) -> LeadValidation:
@@ -22,9 +24,10 @@ def validate_lead(lead: NormalizedLead) -> LeadValidation:
 
 
 def _rollup(fields: dict[str, FieldValidation]) -> ValidationStatus:
-    if any(result.is_invalid for result in fields.values()):
+    graded = {name: result for name, result in fields.items() if name not in METADATA_FIELDS}
+    if any(result.is_invalid for result in graded.values()):
         return ValidationStatus.INVALID
     # nothing to contact them by, so nothing was actually verified
-    if all(fields[name].status is ValidationStatus.UNKNOWN for name in OPTIONAL_FIELDS):
+    if all(graded[name].status is ValidationStatus.UNKNOWN for name in CONTACT_FIELDS):
         return ValidationStatus.UNKNOWN
     return ValidationStatus.VALID

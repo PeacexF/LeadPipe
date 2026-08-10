@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -25,4 +25,6 @@ class Source(Protocol):
     @property
     def name(self) -> str: ...
 
-    def collect(self) -> Iterator[CollectedItem]: ...
+    def collect(self) -> AsyncIterator[CollectedItem]: ...
+
+    async def aclose(self) -> None: ...

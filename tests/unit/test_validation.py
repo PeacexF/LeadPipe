@@ -96,8 +96,13 @@ def test_nothing_verifiable_rolls_up_to_unknown() -> None:
     assert validate_lead(lead).status is ValidationStatus.UNKNOWN
 
 
-def test_source_url_is_validated() -> None:
-    lead = NormalizedLead(source=SourceRef(name="example_csv", url="nope"), company_name="Example")
+def test_source_url_is_reported_but_does_not_grade_the_lead() -> None:
+    lead = NormalizedLead(
+        source=SourceRef(name="example_api", url="http://fixtures/companies.json"),
+        company_name="Example",
+        email="contact@example.com",
+    )
     result = validate_lead(lead)
+
     assert result.fields["source_url"].status is ValidationStatus.INVALID
-    assert result.status is ValidationStatus.INVALID
+    assert result.status is ValidationStatus.VALID

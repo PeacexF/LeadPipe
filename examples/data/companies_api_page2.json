@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "page": 2,
+    "next": null
+  },
+  "data": [
+    {
+      "id": "API-104",
+      "name": "Vantaa Puhtaus Oy",
+      "website": "https://vantaapuhtaus.test",
+      "contact": {
+        "name": "Sari Koskinen",
+        "email": "sari@vantaapuhtaus.test",
+        "phone": "+358 45 678 9012"
+      },
+      "address": {
+        "street": "Tikkurilantie 3 B",
+        "city": "Vantaa",
+        "country": "Suomi"
+      }
+    },
+    {
+      "id": "API-105",
+      "name": "Bergen Renhold AS",
+      "website": "bergenrenhold.test",
+      "contact": {
+        "name": "Ola Nordmann",
+        "email": "post@bergenrenhold.test",
+        "phone": "+47 55 12 34 56"
+      },
+      "address": {
+        "street": "Bryggen 4",
+        "city": "Bergen",
+        "country": "Norway"
+      }
+    },
+    {
+      "id": "API-106",
+      "name": "Stockholm Städservice AB",
+      "website": "https://stockholmstad.test",
+      "contact": {
+        "name": null,
+        "email": "kontakt@stockholmstad.test",
+        "phone": "+46 8 123 456"
+      },
+      "address": {
+        "street": "Drottninggatan 15",
+        "city": "Stockholm",
+        "country": "Sweden"
+      }
+    }
+  ]
+}

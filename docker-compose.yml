@@ -15,5 +15,13 @@ services:
       timeout: 5s
       retries: 10
 
+  fixtures:
+    image: nginx:alpine
+    profiles: [demo]
+    volumes:
+      - ./examples/data:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:${FIXTURES_PORT:-8080}:80"
+
 volumes:
   postgres_data:

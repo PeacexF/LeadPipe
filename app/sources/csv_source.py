@@ -1,5 +1,5 @@
 import csv
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,7 +32,7 @@ class CsvSource:
     def name(self) -> str:
         return self.config.name
 
-    def collect(self) -> Iterator[CollectedItem]:
+    async def collect(self) -> AsyncIterator[CollectedItem]:
         path = self.options.path
         if not path.is_file():
             raise SourceError(f"source '{self.name}': file not found: {path}")
@@ -47,6 +47,9 @@ class CsvSource:
                 )
             for row in reader:
                 yield self._to_record(row, collected_at)
+
+    async def aclose(self) -> None:
+        return None
 
     def _to_record(self, row: dict[str, Any], collected_at: datetime) -> CollectedItem:
         if None in row:

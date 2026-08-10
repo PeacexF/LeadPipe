@@ -15,15 +15,22 @@ def make_source(path: Path, **extra: object) -> SourceConfig:
     )
 
 
+async def collect(source) -> list:  # type: ignore[no-untyped-def, type-arg]
+    try:
+        return [item async for item in source.collect()]
+    finally:
+        await source.aclose()
+
+
 def write_csv(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "data.csv"
     path.write_text(body)
     return path
 
 
-def test_reads_and_maps_columns(tmp_path: Path) -> None:
+async def test_reads_and_maps_columns(tmp_path: Path) -> None:
     path = write_csv(tmp_path, "name,email,city\nExample Oy,contact@example.com,Helsinki\n")
-    items = list(build_source(make_source(path)).collect())
+    items = await collect(build_source(make_source(path)))
 
     assert len(items) == 1
     record = items[0]
@@ -37,22 +44,22 @@ def test_reads_and_maps_columns(tmp_path: Path) -> None:
     assert record.source.name == "test_csv"
 
 
-def test_blank_values_become_none(tmp_path: Path) -> None:
+async def test_blank_values_become_none(tmp_path: Path) -> None:
     path = write_csv(tmp_path, "name,email,city\nExample Oy,,   \n")
-    record = next(iter(build_source(make_source(path)).collect()))
+    record = (await collect(build_source(make_source(path))))[0]
     assert isinstance(record, RawRecord)
     assert record.fields["email"] is None
     assert record.fields["city"] is None
 
 
-def test_external_id_is_carried(tmp_path: Path) -> None:
+async def test_external_id_is_carried(tmp_path: Path) -> None:
     path = write_csv(tmp_path, "id,name,email,city\nA-1,Example,a@example.com,Helsinki\n")
-    record = next(iter(build_source(make_source(path, external_id_field="id")).collect()))
+    record = (await collect(build_source(make_source(path, external_id_field="id"))))[0]
     assert isinstance(record, RawRecord)
     assert record.fields["external_id"] == "A-1"
 
 
-def test_bad_row_is_reported_without_ending_collection(tmp_path: Path) -> None:
+async def test_bad_row_is_reported_without_ending_collection(tmp_path: Path) -> None:
     path = write_csv(
         tmp_path,
         "name,email,city\n"
@@ -60,7 +67,7 @@ def test_bad_row_is_reported_without_ending_collection(tmp_path: Path) -> None:
         "Broken Oy,broken@example.com,Helsinki,extra,columns\n"
         "Also Good Oy,also@example.com,Turku\n",
     )
-    items = list(build_source(make_source(path)).collect())
+    items = await collect(build_source(make_source(path)))
 
     assert len(items) == 3
     assert isinstance(items[1], RecordError)
@@ -68,24 +75,24 @@ def test_bad_row_is_reported_without_ending_collection(tmp_path: Path) -> None:
     assert sum(isinstance(i, RawRecord) for i in items) == 2
 
 
-def test_missing_columns_fail_the_source(tmp_path: Path) -> None:
+async def test_missing_columns_fail_the_source(tmp_path: Path) -> None:
     path = write_csv(tmp_path, "name,city\nExample Oy,Helsinki\n")
     with pytest.raises(SourceError, match="columns not in file: email"):
-        list(build_source(make_source(path)).collect())
+        await collect(build_source(make_source(path)))
 
 
-def test_missing_file_fails_the_source(tmp_path: Path) -> None:
+async def test_missing_file_fails_the_source(tmp_path: Path) -> None:
     with pytest.raises(SourceError, match="file not found"):
-        list(build_source(make_source(tmp_path / "nope.csv")).collect())
+        await collect(build_source(make_source(tmp_path / "nope.csv")))
 
 
-def test_unknown_source_type_is_rejected() -> None:
+async def test_unknown_source_type_is_rejected() -> None:
     config = SourceConfig.model_validate({"name": "x", "type": "carrier-pigeon"})
     with pytest.raises(SourceError, match="unknown source type"):
         build_source(config)
 
 
-def test_shipped_example_dataset_parses() -> None:
+async def test_shipped_example_dataset_parses() -> None:
     config = SourceConfig.model_validate(
         {
             "name": "example_csv",
@@ -95,6 +102,6 @@ def test_shipped_example_dataset_parses() -> None:
             "mapping": {"company_name": "name", "email": "email", "city": "city"},
         }
     )
-    items = list(build_source(config).collect())
+    items = await collect(build_source(config))
     assert len(items) == 20
     assert all(isinstance(item, RawRecord) for item in items)

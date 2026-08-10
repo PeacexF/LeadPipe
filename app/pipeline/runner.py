@@ -64,16 +64,21 @@ async def run_collection(
     stats = RunStats()
     try:
         adapter = build_source(source_config)
-        for item in adapter.collect():
-            if isinstance(item, RecordError):
-                stats.errors += 1
-                logger.warning("job=%s source=%s bad_record=%s", job.id, source.name, item.message)
-                continue
-            try:
-                await _ingest(session, source, source_config, item, region, job.id, stats)
-            except Exception:  # one bad record must not end the run
-                stats.errors += 1
-                logger.exception("job=%s source=%s record failed", job.id, source.name)
+        try:
+            async for item in adapter.collect():
+                if isinstance(item, RecordError):
+                    stats.errors += 1
+                    logger.warning(
+                        "job=%s source=%s bad_record=%s", job.id, source.name, item.message
+                    )
+                    continue
+                try:
+                    await _ingest(session, source, source_config, item, region, job.id, stats)
+                except Exception:  # one bad record must not end the run
+                    stats.errors += 1
+                    logger.exception("job=%s source=%s record failed", job.id, source.name)
+        finally:
+            await adapter.aclose()
     except SourceError as exc:
         await jobs.save_results(job.id, **_persisted(stats))
         await jobs.mark_finished(job, JobStatus.FAILED, error=str(exc))
