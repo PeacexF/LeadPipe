@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src=".github/img/logo.png" alt="LeadPipe" width="160">
-
-# LeadPipe
+<img src=".github/img/logo.png" alt="LeadPipe" width="240">
 
 **A configurable Python service for collecting, normalizing, validating and deduplicating
 publicly available business leads from multiple sources.**
